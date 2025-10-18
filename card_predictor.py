@@ -300,7 +300,7 @@ class CardPredictor:
         SYSTÈME DE PRÉDICTION BASÉ SUR EXCEL:
         1. Extrait le numéro du jeu actuel
         2. Vérifie les exclusions (#R, #X, 🔰)
-        3. Recherche dans le fichier Excel si un numéro est proche (distance 0-3)
+        3. Recherche dans le fichier Excel si un numéro est proche (distance 0-1)
         4. Vérifie le cooldown
         Returns: (should_predict, game_number, predicted_costume)
         """
@@ -345,8 +345,8 @@ class CardPredictor:
         # RECHARGER LE FICHIER EXCEL SI MODIFIÉ
         excel_predictor.reload_if_modified()
 
-        # RECHERCHER PRÉDICTION DANS EXCEL (distance 0-2, changé de 0-3)
-        excel_prediction = excel_predictor.find_next_prediction(game_number, max_distance=2)
+        # RECHERCHER PRÉDICTION DANS EXCEL (distance 0-1, changé de 0-2 à 0-1)
+        excel_prediction = excel_predictor.find_next_prediction(game_number, max_distance=1)
         
         if not excel_prediction:
             return False, None, None
@@ -486,12 +486,12 @@ class CardPredictor:
         return costume_found
 
     def _verify_prediction_common(self, text: str, is_edited: bool = False) -> Optional[Dict]:
-        """SYSTÈME DE VÉRIFICATION CORRIGÉ - Vérifie décalage +0, +1, puis ⭕ après +2"""
+        """SYSTÈME DE VÉRIFICATION SÉQUENTIEL - Vérifie offsets 0, +1, +2, +3 avec arrêt automatique"""
         game_number = self.extract_game_number(text)
         if not game_number:
             return None
 
-        logger.info(f"🔍 VÉRIFICATION CORRIGÉE - Jeu {game_number} (édité: {is_edited})")
+        logger.info(f"🔍 VÉRIFICATION SÉQUENTIELLE - Jeu {game_number} (édité: {is_edited})")
 
         # SYSTÈME DE VÉRIFICATION: Sur messages édités OU normaux avec symbole succès (✅ ou 🔰)
         has_success_symbol = self.has_completion_indicators(text)
@@ -507,7 +507,7 @@ class CardPredictor:
             logger.info(f"🔍 ✅ VÉRIFICATION TERMINÉE - Aucune prédiction éligible pour le jeu {game_number}")
             return None
 
-        # VÉRIFICATION SÉQUENTIELLE: offset 0 → si échec → offset +1 → si échec → ⭕
+        # VÉRIFICATION SÉQUENTIELLE: offset 0 → +1 → +2 → +3 → ❌
         for predicted_game in sorted(self.predictions.keys()):
             prediction = self.predictions[predicted_game]
 
@@ -524,14 +524,14 @@ class CardPredictor:
                 logger.info(f"🔍 ❌ Pas de costume prédit stocké pour le jeu {predicted_game}")
                 continue
 
-            # ÉTAPE 1: VÉRIFIER DÉCALAGE +0 (jeu prédit exact)
+            # ÉTAPE 1: VÉRIFIER DÉCALAGE +0 (numéro prédit exact)
             if verification_offset == 0:
                 logger.info(f"🔍 ⚡ VÉRIFICATION OFFSET 0 - Jeu {game_number}: Recherche costume {predicted_costume}")
                 
                 costume_found = self.check_costume_in_first_parentheses(text, predicted_costume)
 
                 if costume_found:
-                    # SUCCÈS à offset 0
+                    # SUCCÈS à offset 0 → ✅0️⃣ et ARRÊT
                     status_symbol = "✅0️⃣"
                     original_message = f"🔵{predicted_game}🔵:{predicted_costume}statut :⏳"
                     updated_message = f"🔵{predicted_game}🔵:{predicted_costume}statut :{status_symbol}"
@@ -540,8 +540,8 @@ class CardPredictor:
                     prediction['verification_count'] = 0
                     prediction['final_message'] = updated_message
 
-                    logger.info(f"🔍 ✅ SUCCÈS OFFSET 0 - Costume {predicted_costume} trouvé")
-                    logger.info(f"🔍 🛑 ARRÊT - Vérification terminée: {status_symbol}")
+                    logger.info(f"🔍 ✅ SUCCÈS OFFSET 0 - Costume {predicted_costume} trouvé → {status_symbol}")
+                    logger.info(f"🔍 🛑 ARRÊT - Vérification terminée pour N{predicted_game}")
 
                     return {
                         'type': 'edit_message',
@@ -550,18 +550,18 @@ class CardPredictor:
                         'original_message': original_message
                     }
                 else:
-                    # ÉCHEC à offset 0 - RESTE PENDING, attendre offset +1
+                    # ÉCHEC à offset 0 - ATTENDRE offset +1
                     logger.info(f"🔍 ❌ ÉCHEC OFFSET 0 - Costume {predicted_costume} non trouvé, attente offset +1")
                     continue
 
-            # ÉTAPE 2: VÉRIFIER DÉCALAGE +1 (jeu prédit +1)
+            # ÉTAPE 2: VÉRIFIER DÉCALAGE +1 (numéro prédit +1)
             elif verification_offset == 1:
                 logger.info(f"🔍 ⚡ VÉRIFICATION OFFSET +1 - Jeu {game_number}: Recherche costume {predicted_costume}")
                 
                 costume_found = self.check_costume_in_first_parentheses(text, predicted_costume)
 
                 if costume_found:
-                    # SUCCÈS à offset +1
+                    # SUCCÈS à offset +1 → ✅1️⃣ et ARRÊT
                     status_symbol = "✅1️⃣"
                     original_message = f"🔵{predicted_game}🔵:{predicted_costume}statut :⏳"
                     updated_message = f"🔵{predicted_game}🔵:{predicted_costume}statut :{status_symbol}"
@@ -570,8 +570,8 @@ class CardPredictor:
                     prediction['verification_count'] = 1
                     prediction['final_message'] = updated_message
 
-                    logger.info(f"🔍 ✅ SUCCÈS OFFSET +1 - Costume {predicted_costume} trouvé")
-                    logger.info(f"🔍 🛑 ARRÊT - Vérification terminée: {status_symbol}")
+                    logger.info(f"🔍 ✅ SUCCÈS OFFSET +1 - Costume {predicted_costume} trouvé → {status_symbol}")
+                    logger.info(f"🔍 🛑 ARRÊT - Vérification terminée pour N{predicted_game}")
 
                     return {
                         'type': 'edit_message',
@@ -584,14 +584,14 @@ class CardPredictor:
                     logger.info(f"🔍 ❌ ÉCHEC OFFSET +1 - Costume {predicted_costume} non trouvé, attente offset +2")
                     continue
             
-            # ÉTAPE 3: VÉRIFIER DÉCALAGE +2 (jeu prédit +2)
+            # ÉTAPE 3: VÉRIFIER DÉCALAGE +2 (numéro prédit +2)
             elif verification_offset == 2:
                 logger.info(f"🔍 ⚡ VÉRIFICATION OFFSET +2 - Jeu {game_number}: Recherche costume {predicted_costume}")
                 
                 costume_found = self.check_costume_in_first_parentheses(text, predicted_costume)
 
                 if costume_found:
-                    # SUCCÈS à offset +2
+                    # SUCCÈS à offset +2 → ✅2️⃣ et ARRÊT
                     status_symbol = "✅2️⃣"
                     original_message = f"🔵{predicted_game}🔵:{predicted_costume}statut :⏳"
                     updated_message = f"🔵{predicted_game}🔵:{predicted_costume}statut :{status_symbol}"
@@ -600,8 +600,8 @@ class CardPredictor:
                     prediction['verification_count'] = 2
                     prediction['final_message'] = updated_message
 
-                    logger.info(f"🔍 ✅ SUCCÈS OFFSET +2 - Costume {predicted_costume} trouvé")
-                    logger.info(f"🔍 🛑 ARRÊT - Vérification terminée: {status_symbol}")
+                    logger.info(f"🔍 ✅ SUCCÈS OFFSET +2 - Costume {predicted_costume} trouvé → {status_symbol}")
+                    logger.info(f"🔍 🛑 ARRÊT - Vérification terminée pour N{predicted_game}")
 
                     return {
                         'type': 'edit_message',
@@ -610,15 +610,46 @@ class CardPredictor:
                         'original_message': original_message
                     }
                 else:
-                    # ÉCHEC à offset +2 - MARQUER ❌ (RIEN TROUVÉ)
+                    # ÉCHEC à offset +2 - ATTENDRE offset +3
+                    logger.info(f"🔍 ❌ ÉCHEC OFFSET +2 - Costume {predicted_costume} non trouvé, attente offset +3")
+                    continue
+            
+            # ÉTAPE 4: VÉRIFIER DÉCALAGE +3 (numéro prédit +3)
+            elif verification_offset == 3:
+                logger.info(f"🔍 ⚡ VÉRIFICATION OFFSET +3 - Jeu {game_number}: Recherche costume {predicted_costume}")
+                
+                costume_found = self.check_costume_in_first_parentheses(text, predicted_costume)
+
+                if costume_found:
+                    # SUCCÈS à offset +3 → ✅3️⃣ et ARRÊT
+                    status_symbol = "✅3️⃣"
                     original_message = f"🔵{predicted_game}🔵:{predicted_costume}statut :⏳"
-                    updated_message = f"🔵{predicted_game}🔵:{predicted_costume}statut :❌"
+                    updated_message = f"🔵{predicted_game}🔵:{predicted_costume}statut :{status_symbol}"
+
+                    prediction['status'] = 'correct'
+                    prediction['verification_count'] = 3
+                    prediction['final_message'] = updated_message
+
+                    logger.info(f"🔍 ✅ SUCCÈS OFFSET +3 - Costume {predicted_costume} trouvé → {status_symbol}")
+                    logger.info(f"🔍 🛑 ARRÊT - Vérification terminée pour N{predicted_game}")
+
+                    return {
+                        'type': 'edit_message',
+                        'predicted_game': predicted_game,
+                        'new_message': updated_message,
+                        'original_message': original_message
+                    }
+                else:
+                    # ÉCHEC à offset +3 → MARQUER ❌ et ARRÊT
+                    status_symbol = "❌"
+                    original_message = f"🔵{predicted_game}🔵:{predicted_costume}statut :⏳"
+                    updated_message = f"🔵{predicted_game}🔵:{predicted_costume}statut :{status_symbol}"
 
                     prediction['status'] = 'failed'
                     prediction['final_message'] = updated_message
 
-                    logger.info(f"🔍 ❌ ÉCHEC OFFSET +2 - Costume {predicted_costume} non trouvé")
-                    logger.info(f"🔍 🛑 ARRÊT ÉCHEC - Rien trouvé, prédiction marquée: ❌")
+                    logger.info(f"🔍 ❌ ÉCHEC OFFSET +3 - Costume {predicted_costume} non trouvé → {status_symbol}")
+                    logger.info(f"🔍 🛑 ARRÊT ÉCHEC - Aucun succès sur 4 offsets, prédiction marquée: ❌")
 
                     return {
                         'type': 'edit_message',
@@ -627,9 +658,9 @@ class CardPredictor:
                         'original_message': original_message
                     }
             
-            # Ignorer les autres offsets (>2)
+            # Ignorer les autres offsets (>3)
             else:
-                logger.info(f"🔍 ⏭️ OFFSET {verification_offset} ignoré - Vérification terminée pour cette prédiction")
+                logger.info(f"🔍 ⏭️ OFFSET {verification_offset} ignoré - Hors plage de vérification (0-3)")
                 continue
 
         logger.info(f"🔍 ✅ VÉRIFICATION TERMINÉE - Aucune prédiction éligible pour le jeu {game_number}")

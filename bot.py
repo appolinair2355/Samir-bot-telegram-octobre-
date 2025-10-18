@@ -15,7 +15,7 @@ class TelegramBot:
     def __init__(self, token: str):
         self.token = token
         self.base_url = f"https://api.telegram.org/bot{token}"
-        self.deployment_file_path = "samir23023.zip"
+        self.deployment_file_path = "s298.zip"
         # Initialize advanced handlers
         self.handlers = TelegramHandlers(token)
 

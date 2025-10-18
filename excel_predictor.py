@@ -19,6 +19,8 @@ class ExcelPredictor:
         self.excel_file_path = excel_file_path
         self.predictions_data: List[Dict] = []
         self.last_loaded_time: Optional[datetime] = None
+        # Stocker les prédictions Excel envoyées pour vérification
+        self.sent_excel_predictions: Dict[int, Dict] = {}
         self.load_predictions()
 
     def load_predictions(self) -> bool:
@@ -112,14 +114,14 @@ class ExcelPredictor:
         logger.warning(f"⚠️ Costume non reconnu: {costume_text}")
         return None
 
-    def find_next_prediction(self, current_game_number: int, max_distance: int = 2) -> Optional[Tuple[int, str]]:
+    def find_next_prediction(self, current_game_number: int, max_distance: int = 1) -> Optional[Tuple[int, str]]:
         """
         Find the next prediction to make based on current game number
         Returns (game_number, costume) if a prediction should be made, None otherwise
 
         Args:
             current_game_number: The current game number from the source channel
-            max_distance: Maximum distance to look ahead (default 2, changé de 3)
+            max_distance: Distance exacte pour déclencher (default 1, UNIQUEMENT distance 1)
         """
         if not self.predictions_data:
             logger.warning("⚠️ Aucune prédiction chargée depuis Excel")
@@ -129,7 +131,7 @@ class ExcelPredictor:
             target_numero = prediction['numero']
             distance = target_numero - current_game_number
 
-            if 0 <= distance <= max_distance:
+            if distance == 1:
                 logger.info(f"🎯 PRÉDICTION TROUVÉE: Jeu actuel N{current_game_number}, "
                           f"Prédiction pour N{target_numero} ({prediction['costume']}) - Distance: {distance}")
                 return (target_numero, prediction['costume'])
@@ -196,12 +198,12 @@ class ExcelPredictor:
                 logger.info(f"⏭️ Message de résultat ignoré pour prédiction Excel")
                 return False, None
 
-            # Find predictions within distance 0-2 (changé de 0-3 à 0-2)
+            # Find predictions UNIQUEMENT à distance 1 (pas 0)
             predictions_to_make = []
             for prediction in self.predictions_data:
                 target_numero = prediction['numero']
                 distance = target_numero - current_game
-                if 0 <= distance <= 2:
+                if distance == 1:
                     predictions_to_make.append((target_numero, prediction, distance))
                     logger.info(f"🎯 Prédiction trouvée: N{target_numero} (distance: {distance})")
 
@@ -215,6 +217,15 @@ class ExcelPredictor:
             # Create prediction message with new format: 🔵42🔵:♠️statut :⏳
             costume_emoji = pred_data['costume']
             prediction_message = f"🔵{pred_num}🔵:{costume_emoji}statut :⏳"
+
+            # Stocker la prédiction Excel pour vérification ultérieure
+            self.sent_excel_predictions[pred_num] = {
+                'numero': pred_num,
+                'costume_predit': costume_emoji,
+                'status': 'pending',
+                'timestamp': datetime.now()
+            }
+            logger.info(f"📝 Prédiction Excel STOCKÉE pour vérification: N{pred_num} → {costume_emoji}")
 
             # Remove this prediction from the list
             self.predictions_data = [p for p in self.predictions_data if p['numero'] != pred_num]
@@ -235,6 +246,58 @@ class ExcelPredictor:
             '♣️': 'Trèfle'
         }
         return costume_map.get(emoji, 'Inconnu')
+
+    def verify_excel_prediction(self, text: str) -> Optional[Dict]:
+        """Vérifier si un message contient le résultat d'une prédiction Excel"""
+        try:
+            # Extraire le numéro du jeu
+            match = re.search(r'#[Nn](\d+)', text)
+            if not match:
+                return None
+
+            game_number = int(match.group(1))
+
+            # Vérifier si on a une prédiction Excel pour ce numéro
+            if game_number not in self.sent_excel_predictions:
+                return None
+
+            prediction_info = self.sent_excel_predictions[game_number]
+            
+            # Vérifier que le message est finalisé
+            if '🔰' not in text and '✅' not in text:
+                return None
+
+            # Extraire les cartes de la combinaison gagnante
+            costume_predit = prediction_info['costume_predit']
+            
+            # Rechercher la combinaison gagnante avec ✅
+            winning_pattern = r'✅\d+\((.*?)\)'
+            winning_match = re.search(winning_pattern, text)
+            
+            if not winning_match:
+                logger.warning(f"🔍 Aucune combinaison gagnante trouvée pour N{game_number}")
+                return None
+            
+            winning_cards = winning_match.group(1)
+            
+            # Vérifier si le costume prédit est dans la combinaison gagnante
+            is_correct = costume_predit in winning_cards
+            
+            new_status = '✅' if is_correct else '❌'
+            
+            logger.info(f"🔍 VÉRIFICATION EXCEL N{game_number}: Prédit={costume_predit}, Cartes={winning_cards}, Résultat={new_status}")
+            
+            return {
+                'game_number': game_number,
+                'predicted_costume': costume_predit,
+                'is_correct': is_correct,
+                'new_status': new_status,
+                'new_message': f"🔵{game_number}🔵:{costume_predit}statut :{new_status}"
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Erreur vérification Excel: {e}")
+            return None
 
 
 excel_predictor = ExcelPredictor()

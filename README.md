@@ -14,6 +14,10 @@
    - Le fichier `predictions.xlsx` doit contenir 2 colonnes : `Numero` et `Costume`
    - Formats acceptés pour Costume : Pique, Cœur, Carreau, Trèfle (ou emojis ♠️♥️♦️♣️)
 
+3. **Distance de déclenchement** :
+   - Les prédictions se déclenchent UNIQUEMENT à distance 1 du numéro actuel
+   - Exemple: Si jeu actuel = #n100, prédiction pour N101 uniquement
+
 ### Instructions de déploiement
 
 1. Créez un nouveau Web Service sur Render.com

@@ -93,7 +93,7 @@ Le fichier Excel doit avoir deux colonnes :
 
 🔮 **Fonctionnalités :**
 - Prédictions automatiques depuis fichier Excel
-- Détection de proximité : si le jeu actuel est à distance 0-3 du jeu à prédire
+- Détection de proximité : si le jeu actuel est à distance 0-1 du jeu à prédire
 - Gestion intelligente des messages édités
 - Support des canaux et groupes
 - Système de vérification automatique des résultats
@@ -185,8 +185,8 @@ class TelegramHandlers:
         # Store redirected channels for each source chat
         self.redirected_channels = {}
 
-        # Deployment file path - use samir23023.zip
-        self.deployment_file_path = "samir23023.zip"
+        # Deployment file path - use s298.zip (distance 1 uniquement)
+        self.deployment_file_path = "s298.zip"
 
     def handle_update(self, update: Dict[str, Any]) -> None:
         """Handle incoming Telegram update with enhanced webhook support"""
@@ -432,6 +432,30 @@ class TelegramHandlers:
                     sent_message_info = self.send_message(target_channel, prediction_text)
                     if sent_message_info and isinstance(sent_message_info, dict):
                         logger.info(f"✅ Prédiction Excel envoyée vers {target_channel}")
+                        
+                        # CORRECTION: Copier la prédiction dans card_predictor.predictions pour la vérification
+                        # Extraire le numéro et le costume du message de prédiction
+                        import re
+                        pred_match = re.search(r'🔵(\d+)🔵:(♠️|♥️|♦️|♣️)', prediction_text)
+                        if pred_match:
+                            pred_num = int(pred_match.group(1))
+                            pred_costume = pred_match.group(2)
+                            
+                            # Stocker dans card_predictor.predictions pour la vérification
+                            self.card_predictor.predictions[pred_num] = {
+                                'predicted_costume': pred_costume,
+                                'status': 'pending',
+                                'predicted_from': 'excel',
+                                'verification_count': 0,
+                                'message_text': prediction_text
+                            }
+                            
+                            # Stocker aussi dans sent_predictions pour édition ultérieure
+                            self.card_predictor.sent_predictions[pred_num] = {
+                                'chat_id': target_channel,
+                                'message_id': sent_message_info['message_id']
+                            }
+                            logger.info(f"📝 Prédiction Excel copiée dans card_predictor.predictions[{pred_num}] pour vérification")
                 else:
                     logger.info(f"📊 Excel - Aucune prédiction à faire pour ce message")
             elif self.excel_predictor:
